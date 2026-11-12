@@ -69,14 +69,45 @@ dtype, max context, batch size, sampling params, and the git commit of the harne
 
 ## Install
 
+Two ways to run it, depending on whether you want it on your PATH:
+
 ```bash
+# A. No install -- straight from a fresh clone
 git clone https://github.com/oren40/inferlab.git
 cd inferlab
-python -m venv .venv && . .venv/bin/activate      # Windows: .venv\Scripts\activate
+python -m pip install aiohttp pyyaml            # the only two runtime deps
+python -m inferlab --help
+
+# B. Installed, which also puts `inferlab` on your PATH
+python -m venv .venv && . .venv/bin/activate    # Windows: .venv\Scripts\activate
 pip install -e ".[bench]"
+inferlab --help
 ```
 
 Requires: Python 3.11+, `nvidia-smi` on PATH, and at least one OpenAI-compatible server running.
+
+## Limitations
+
+Stated up front, because a tool that measures things should be honest about what
+it does not:
+
+- **NVIDIA/CUDA only.** Peak-VRAM sampling shells out to `nvidia-smi`. There is no
+  `rocm-smi` / `vulkaninfo` path yet, so AMD and Vulkan backends get no VRAM row.
+  The sampler degrades to "unavailable" rather than failing the run, but the column
+  stays empty. This is the most useful port available -- see
+  [Contributing](#contributing).
+- **The task set is small and not execution-based.** 26 multiple-choice items,
+  scored by option log-probability. That catches gross capability loss from
+  aggressive quantization. It does *not* substitute for HumanEval-style execution
+  testing: a model can pass these items and still emit code that fails to run.
+  Execution-based evaluation (generate, run, compare) is on the roadmap; until
+  then treat the accuracy row as a regression guard, not a capability claim.
+- **Cross-engine gaps under ~5% are noise.** Engines differ in scheduling, in how
+  they account for chat-template tokens, and in whether `prompt_tokens` includes
+  them. Compare rows with the same engine version and the same workload, and read
+  the `token_source` field in the JSON before comparing across engines.
+- **No speculative decoding / MTP bench yet.** Decode throughput rows are plain
+  greedy single-stream decode.
 
 ## Usage
 

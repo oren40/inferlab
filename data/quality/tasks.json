@@ -211,5 +211,69 @@
     ],
     "answer": 1,
     "tags": ["comprehension", "quantization"]
+  },
+  {
+    "id": "code-fib-1",
+    "question": "What does this print?\n\ndef f(n):\n    if n <= 1:\n        return n\n    return f(n - 1) + f(n - 2)\n\nprint(f(6))",
+    "choices": ["5", "8", "13", "21"],
+    "answer": 1,
+    "tags": ["code", "reasoning"]
+  },
+  {
+    "id": "code-comprehension-1",
+    "question": "What does `[x for x in range(5) if x % 2]` evaluate to?",
+    "choices": ["[0, 2, 4]", "[1, 3]", "[1, 3, 5]", "[0, 1, 2, 3, 4]"],
+    "answer": 1,
+    "tags": ["code"]
+  },
+  {
+    "id": "code-mutable-default",
+    "question": "What is the output of calling h() twice?\n\ndef h(x, acc=[]):\n    acc.append(x)\n    return acc\n\nprint(h(1), h(2))",
+    "choices": ["[1] [2]", "[1] [1, 2]", "It raises a TypeError", "[1] [1] [2]"],
+    "answer": 1,
+    "tags": ["code", "reasoning"]
+  },
+  {
+    "id": "code-dict-order",
+    "question": "In Python 3.7 and later, what is guaranteed about the order of keys in a dict?",
+    "choices": [
+      "Keys are sorted alphabetically on insertion",
+      "Insertion order is preserved",
+      "Order is arbitrary within a single run",
+      "Keys are ordered by their hash values"
+    ],
+    "answer": 1,
+    "tags": ["code"]
+  },
+  {
+    "id": "code-async-gather",
+    "question": "What does `asyncio.gather(a(), b())` do?",
+    "choices": [
+      "Runs a(), waits for it, then runs b()",
+      "Schedules both concurrently and completes when both finish",
+      "Runs each in a separate OS process",
+      "Blocks the event loop until both finish"
+    ],
+    "answer": 1,
+    "tags": ["code"]
+  },
+  {
+    "id": "code-kv-sizing",
+    "question": "A model has 32 layers and 32 KV heads with head_dim 128, using FP8 KV-cache. Roughly how much memory per cached token?",
+    "choices": ["8 MB", "2 MB", "0.5 MB", "0.03 MB"],
+    "answer": 2,
+    "tags": ["code", "arithmetic", "inference"]
+  },
+  {
+    "id": "code-context-vs-weights",
+    "question": "Why does raising max context length increase KV-cache memory but not weight memory?",
+    "choices": [
+      "Weights are quantized harder at longer contexts",
+      "The KV-cache grows with cached tokens while the weights stay fixed",
+      "The tokenizer switches to a longer vocabulary",
+      "Weights are paged out to system RAM automatically"
+    ],
+    "answer": 1,
+    "tags": ["code", "inference"]
   }
 ]

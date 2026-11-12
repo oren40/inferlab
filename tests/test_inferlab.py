@@ -308,7 +308,12 @@ def _readme_bash_blocks() -> list[str]:
 
 
 def _inferlab_commands() -> list[str]:
-    """Every `inferlab ...` invocation documented in the README, as an argv list."""
+    """Every `inferlab ...` invocation documented in the README, as an argv list.
+
+    Matches both the installed console script (`inferlab bench ...`) and the
+    no-install form (`python -m inferlab bench ...`).
+    """
+    import re
 
     commands: list[str] = []
     for block in _readme_bash_blocks():
@@ -320,8 +325,10 @@ def _inferlab_commands() -> list[str]:
                 continue
             cmd.append(stripped)
             joined = " ".join(part for part in cmd if part)
-            if joined.startswith("inferlab "):
-                commands.append(joined)
+            # normalise `python -m inferlab X` down to `inferlab X`
+            normalised = re.sub(r"^python -m (inferlab)\b", r"\1", joined)
+            if normalised.startswith("inferlab "):
+                commands.append(normalised)
             cmd = []
     return commands
 
@@ -346,6 +353,8 @@ def test_readme_documents_real_commands():
 
     for cmd in commands:
         argv = shlex.split(cmd)[1:]  # drop the leading "inferlab"
+        if not argv or argv[0] in ("-h", "--help"):
+            continue
         subcommand, rest = argv[0], argv[1:]
         assert subcommand in subcommand_to_module, f"unknown subcommand in README: {cmd}"
         parser = subcommand_to_module[subcommand].build_parser()
@@ -362,11 +371,52 @@ def test_readme_references_existing_files():
     """Every relative link/path in the README must resolve on disk."""
     import re
 
-    from inferlab import report as _report  # noqa: F401  (keeps the import list honest)
-
     text = Path("README.md").read_text(encoding="utf-8")
     refs = re.findall(r"\]\(([^)#:<>]+)\)", text)
     refs += re.findall(r"`(configs/[^`]+|data/[^`]+|docs/[^`]+|backends/[^`]+)`", text)
     assert refs, "found no file references to check"
     missing = [r for r in refs if not Path(r).exists()]
     assert not missing, f"README references files that do not exist: {missing}"
+
+
+def test_python_dash_m_works_without_install():
+    """A fresh clone must be runnable via `python -m inferlab`.
+
+    The `inferlab` console script only exists after `pip install -e .`, so the
+    no-install path is the one a reader tries first. Regression test for the
+    issue where the README documented a command that did not exist.
+    """
+    import subprocess
+    import sys
+
+    root = Path(__file__).resolve().parent.parent
+    proc = subprocess.run(
+        [sys.executable, "-m", "inferlab", "--help"],
+        capture_output=True,
+        text=True,
+        cwd=root,
+        timeout=60,
+        check=False,
+    )
+    assert proc.returncode == 0, f"`python -m inferlab` failed:\n{proc.stderr}"
+    assert "bench" in proc.stdout and "quality" in proc.stdout and "report" in proc.stdout
+
+
+def test_no_install_path_documented_in_readme():
+    """The README must show the no-install entry point, not just the console script."""
+    text = Path("README.md").read_text(encoding="utf-8")
+    assert "python -m inferlab" in text, (
+        "README documents only the installed console script; a fresh clone has nothing "
+        "named `inferlab` on PATH"
+    )
+
+
+def test_task_set_is_nontrivial_and_tagged():
+    """The task set has to be big enough to catch a regression, not just look complete."""
+    tasks = quality.load_tasks(["data/quality/tasks.json"])
+    assert len(tasks) >= 25, f"only {len(tasks)} tasks; too small to catch a regression"
+    tags = {t for task in tasks for t in task.tags}
+    assert {"reasoning", "arithmetic", "code"} <= tags, (
+        f"missing core capability tags; found {sorted(tags)}. A perplexity-only guardrail "
+        "does not catch a model that got fast and lost the ability to reason."
+    )
