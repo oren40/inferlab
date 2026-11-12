@@ -29,9 +29,29 @@ jobs:
       - name: Test
         run: pytest -q
 
-      - name: Verify the report generator reproduces docs/RESULTS.md
+      - name: Pipeline validation against a synthetic server (no GPU)
+        run: |
+          inferlab self-test --outdir results-synthetic --report-out /tmp/SELF-TEST.md
+          echo "--- synthetic section renders ---"
+          grep -q "Pipeline verification" /tmp/SELF-TEST.md
+          grep -q "NOT a benchmark result" /tmp/SELF-TEST.md
+          echo "synthetic rows are separated from measured rows"
+
+      - name: Verify RESULTS.md matches results/
         run: |
           inferlab report results/ --out /tmp/RESULTS.md
           diff -u docs/RESULTS.md /tmp/RESULTS.md \
             && echo "RESULTS.md is in sync with results/" \
             || echo "::warning::RESULTS.md differs from results/ -- run 'inferlab report results/*.json --out docs/RESULTS.md'"
+
+      - name: Assert no synthetic row can reach the measured table
+        # The mock is a smoke test, not a measurement. This guard is what keeps the
+        # distinction enforceable rather than aspirational.
+        run: |
+          inferlab report results/ results-synthetic/ --out /tmp/MERGED.md
+          SECTIONS=$(grep -c "^## Pipeline verification" /tmp/MERGED.md)
+          if [ "$SECTIONS" -eq 0 ]; then
+            echo "::error::merged report has no synthetic section; the separation is broken"
+            exit 1
+          fi
+          echo "separation intact ($SECTIONS synthetic section(s))"

@@ -22,6 +22,30 @@ SEP = "|" + "---|" * 12
 ENGINE_ORDER = ["vllm", "sglang", "tensorrt-llm", "llama.cpp", "unknown"]
 
 
+def is_synthetic(result: dict[str, Any]) -> bool:
+    """True for pipeline-validation results, which must never enter the measured table."""
+    cfg = result.get("config") or {}
+    if cfg.get("synthetic"):
+        return True
+    # A quality result marks itself at the top level.
+    return bool(result.get("synthetic"))
+
+
+def partition(
+    results: Sequence[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Split into (measured, synthetic). Synthetic rows name a mock server, not hardware."""
+    measured = [r for r in results if not is_synthetic(r)]
+    synthetic = [r for r in results if is_synthetic(r)]
+    return measured, synthetic
+
+
+def render_synthetic_note(synthetic: Sequence[dict[str, Any]]) -> str:
+    """A hard, loud separator between real measurements and pipeline validation."""
+    if not synthetic:
+        return ""
+    return "\n---\n\n## Pipeline verification (synthetic -- NOT a benchmark result)\n\n> **The rows below were produced against a mock OpenAI-compatible server in CI, on a CPU, with no model loaded. They exist to prove the harness, the quality scorer and this report generator actually run end to end. They are not measurements of any model, engine or GPU, and must not be quoted as such.**\n\nRun it yourself, no GPU required:\n\n```bash\ninferlab self-test\n```\n\nReal hardware results live in the table at the top of this file. When the top table is empty, nothing has been measured yet -- the section below is not a substitute for it.\n"
+
 def load_results(paths: Sequence[str]) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for p in paths:
@@ -37,10 +61,15 @@ def load_results(paths: Sequence[str]) -> list[dict[str, Any]]:
         except json.JSONDecodeError as exc:
             print(f"warning: {p} is not valid JSON ({exc}), skipping", file=sys.stderr)
             continue
-        if data.get("schema") == "inferlab.bench/1":
+        schema = data.get("schema")
+        if schema in ("inferlab.bench/1", "inferlab.quality/1"):
             out.append(data)
         else:
-            print(f"warning: {p} is not an inferlab bench result, skipping", file=sys.stderr)
+            print(
+                f"warning: {p} has schema {schema!r}, skipping "
+                "(expected inferlab.bench/1 or inferlab.quality/1)",
+                file=sys.stderr,
+            )
     return out
 
 
@@ -117,8 +146,11 @@ def _aggregate(result: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def render(results: Sequence[dict[str, Any]]) -> str:
+    """Render the measured-results table. Synthetic rows are dropped here by design."""
+    measured, _synthetic = partition(results)
+
     all_rows: list[list[str]] = []
-    for r in results:
+    for r in measured:
         all_rows.extend(_rows_for(r))
 
     def sort_key(row: list[str]) -> tuple[int, str, str, int]:
@@ -142,18 +174,34 @@ def render(results: Sequence[dict[str, Any]]) -> str:
         lines += [
             "| _no results yet_ | - | - | - | - | - | - | - | - | - | - | - |",
             "",
-            "Nothing has been benchmarked yet. Start a backend (see `backends/README.md`), then:",
+            "Nothing has been benchmarked on real hardware yet. Start a backend (see",
+            "`backends/README.md`), then:",
             "",
             "```bash",
             "inferlab bench --backend <label> --engine vllm --json results/<label>.json",
             "inferlab report results/*.json --out docs/RESULTS.md",
             "```",
+            "",
+            "### The pipeline itself is verified",
+            "",
+            "The table above is empty because no GPU benchmark has been published -- not",
+            "because the harness is untested. CI runs the whole pipeline (streaming parse,",
+            "token counting, perplexity, accuracy scoring, report generation) against a",
+            "deterministic synthetic server, and asserts that no synthetic row can ever",
+            "reach this table. Reproduce it locally, no GPU required:",
+            "",
+            "```bash",
+            "inferlab self-test",
+            "```",
+            "",
+            "That produces numbers. It produces no evidence about any model, engine or GPU,",
+            "and it is deliberately kept out of the table above.",
         ]
     else:
         lines += ["| " + " | ".join(row) + " |" for row in sorted(all_rows, key=sort_key)]
 
     lines += ["", "## Config provenance", "", "| Backend | URL | Runs | Warmup | Harness commit |", "|---|---|---|---|---|"]
-    for r in results:
+    for r in measured:
         cfg = r.get("config", {})
         lines.append(
             "| {label} | {url} | {runs} | {warmup} | {commit} |".format(
@@ -194,6 +242,9 @@ QUALITY_HEADER = (
 
 
 def render_quality(results: Sequence[dict[str, Any]]) -> str:
+    """Render the quality table. Synthetic rows are excluded by the same rule as bench."""
+    _measured, _synthetic = partition(results)
+    results = _measured
     lines = [
         "## Quality guardrails",
         "",
@@ -243,9 +294,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     bench = load_results(args.paths or ["results"])
     quality = load_results(args.quality) if args.quality else []
 
+    _measured, synthetic = partition(bench)
     text = render(bench)
     if quality:
         text += render_quality(quality)
+
+    # Synthetic rows are appended behind a hard separator and counted, never mixed in.
+    note = render_synthetic_note(synthetic)
+    if note:
+        text += note
+        print(
+            f"note: {len(synthetic)} synthetic result(s) excluded from the measured table "
+            "and listed under 'Pipeline verification'",
+            file=sys.stderr,
+        )
 
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)

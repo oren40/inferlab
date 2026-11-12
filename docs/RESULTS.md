@@ -8,12 +8,28 @@ column is measured and what it does and does not tell you.
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | _no results yet_ | - | - | - | - | - | - | - | - | - | - | - |
 
-Nothing has been benchmarked yet. Start a backend (see `backends/README.md`), then:
+Nothing has been benchmarked on real hardware yet. Start a backend (see
+`backends/README.md`), then:
 
 ```bash
 inferlab bench --backend <label> --engine vllm --json results/<label>.json
 inferlab report results/*.json --out docs/RESULTS.md
 ```
+
+### The pipeline itself is verified
+
+The table above is empty because no GPU benchmark has been published -- not
+because the harness is untested. CI runs the whole pipeline (streaming parse,
+token counting, perplexity, accuracy scoring, report generation) against a
+deterministic synthetic server, and asserts that no synthetic row can ever
+reach this table. Reproduce it locally, no GPU required:
+
+```bash
+inferlab self-test
+```
+
+That produces numbers. It produces no evidence about any model, engine or GPU,
+and it is deliberately kept out of the table above.
 
 ## Config provenance
 
