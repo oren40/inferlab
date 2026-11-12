@@ -52,10 +52,18 @@ class Sample:
     decode_tps: float
     e2e_tps: float
     error: str | None = None
+    # ""length"" means the server hit --max-tokens and stopped early. Such a sample is
+    # NOT a valid completion: the workload did not finish, so its timing is measuring a
+    # truncated answer. See truncation_notes().
+    finish_reason: str | None = None
 
     @property
     def ok(self) -> bool:
         return self.error is None and self.completion_tokens > 0
+
+    @property
+    def truncated(self) -> bool:
+        return self.finish_reason == "length"
 
 
 @dataclass
@@ -216,6 +224,7 @@ async def _stream_one(
     completion_tokens = 0
     prompt_tokens = 0
     token_source = "chunk-count"
+    finish_reason: str | None = None
     error: str | None = None
 
     try:
@@ -252,6 +261,11 @@ async def _stream_one(
                 choices = chunk.get("choices") or []
                 if not choices:
                     continue
+                # finish_reason arrives on the last chunk. "length" means the server
+                # stopped at the cap, not that the model finished -- treat those samples
+                # as invalid, not as fast completions.
+                if choices[0].get("finish_reason"):
+                    finish_reason = choices[0]["finish_reason"]
                 delta = choices[0].get("delta") or {}
                 content = delta.get("content") or delta.get("reasoning_content") or ""
                 if content:
@@ -300,6 +314,7 @@ async def _stream_one(
         total_ms=total_ms,
         decode_tps=completion_tokens / (decode_ms / 1000.0),
         e2e_tps=completion_tokens / (total_ms / 1000.0),
+        finish_reason=finish_reason,
     )
 
 
@@ -422,6 +437,41 @@ def markdown_table(result: BenchResult) -> str:
             )
         )
     return "\n".join(lines)
+
+
+def truncation_notes(samples: Sequence[Sample]) -> list[str]:
+    """Warn about samples the server stopped early.
+
+    A truncated sample measures a partial answer. Its decode tok/s is still real
+    arithmetic, but the workload did not finish -- so comparing it against a config that
+    completed the same prompt is comparing two different problems.
+
+    This exists because of a real-world observation: on GSM8K, raising the generation cap
+    from 320 to 1024 tokens moved accuracy from 76.6% to 95.3%, almost entirely because
+    answers were cut off mid-reasoning and then scored as wrong. Timing rows hide that.
+    """
+    counts: dict[tuple[str, int], int] = {}
+    for s in samples:
+        if s.truncated:
+            key = (s.workload, s.concurrency)
+            counts[key] = counts.get(key, 0) + 1
+
+    if not counts:
+        return []
+
+    lines = [
+        "",
+        f"TRUNCATION: {sum(counts.values())} sample(s) hit the token cap and did not finish.",
+        "Per (workload, concurrency):",
+    ]
+    for (name, conc), n in sorted(counts.items()):
+        lines.append(f"  {name} @ concurrency={conc}: {n} truncated")
+    lines += [
+        "",
+        "  These rows are NOT comparable with rows that completed. Raise --max-tokens",
+        "  (per-workload budgets live in inferlab/workloads.py) before quoting them.",
+    ]
+    return lines
 
 
 def summary_json(result: BenchResult) -> dict[str, Any]:
@@ -572,6 +622,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         failures = [s for s in result.samples if not s.ok]
         if failures:
             print(f"\n{len(failures)} request(s) failed; first error: {failures[0].error}")
+
+        for line in truncation_notes(result.samples):
+            print(line)
     return 0
 
 

@@ -131,6 +131,47 @@ should quote.
    follow the warmup, so this affects the warmup, not the numbers -- but it means a cold-start
    number is not in this table at all.
 
+## Truncation is a silent failure mode
+
+A sample with `finish_reason == "length"` did not complete. It is reported loudly rather than
+averaged in, because the failure it hides is severe and invisible in a timing table.
+
+The concrete evidence, from a measurement on a 14B model:
+
+| Generation cap | GSM8K accuracy |
+|---|---|
+| 320 tokens | 76.6% |
+| 1024 tokens | 95.3% |
+
+Almost the entire gap was answers being cut off mid-reasoning and then scored as wrong -- not a
+capability difference. A harness that reports timing and ignores `finish_reason` will happily
+table a fast number for a config that never finished its answers.
+
+Two consequences for this lab:
+
+- `inferlab bench` records `finish_reason` per sample and prints a truncation warning naming the
+  affected `(workload, concurrency)` pairs. Those rows are not comparable with completed rows.
+- The per-workload `max_tokens` budgets in `inferlab/workloads.py` are deliberately generous. A
+  budget small enough to cause truncation turns a capability question into a length question.
+
+## What perplexity does and does not predict
+
+Perplexity delta is a distributional measure, not a capability measure. The clearest data point
+against treating it as a predictor, from a 14B Q6_K-versus-F16 comparison:
+
+| Metric | F16 | Q6_K | Delta |
+|---|---|---|---|
+| Perplexity | 100.00% | 100.70% | +0.70% |
+| MMLU | 0.770 | 0.772 | +0.002 |
+
+A 0.7% perplexity shift produced *no measurable* task-score change. Perplexity that barely moves
+does not license a claim that nothing changed -- and, more importantly, a large perplexity move is
+the only case where ppl is a useful early warning. Treat it as a smoke detector for gross
+quantization damage, and let the task-accuracy row answer whether the model still works.
+
+This is why `inferlab quality` reports both, and why neither is presented as a substitute for the
+other.
+
 ## Reproducing a row
 
 Every result JSON carries the recipe name, engine, model, URL, concurrency levels, run counts,
