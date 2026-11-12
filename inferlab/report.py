@@ -226,7 +226,7 @@ def render_quality(results: Sequence[dict[str, Any]]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def main(argv: Sequence[str] | None = None) -> int:
+def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="inferlab report",
         description="Render benchmark results into docs/RESULTS.md.",
@@ -234,7 +234,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     p.add_argument("paths", nargs="*", default=["results"], help="result JSON files or directories")
     p.add_argument("--out", default="docs/RESULTS.md", help="output markdown path")
     p.add_argument("--quality", nargs="*", default=None, help="quality result JSON files")
-    args = p.parse_args(argv)
+    return p
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
 
     bench = load_results(args.paths or ["results"])
     quality = load_results(args.quality) if args.quality else []

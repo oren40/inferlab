@@ -293,3 +293,80 @@ def test_describe_returns_something_useful():
     text = recipes.describe("vllm-nvfp4")
     assert text.startswith("[vllm-nvfp4]")
     assert "vllm" in text.lower()
+
+
+# --------------------------------------------------------------------------------------
+# documentation correctness
+# --------------------------------------------------------------------------------------
+
+
+def _readme_bash_blocks() -> list[str]:
+    import re
+
+    text = Path("README.md").read_text(encoding="utf-8")
+    return re.findall(r"```bash\n(.*?)```", text, re.DOTALL)
+
+
+def _inferlab_commands() -> list[str]:
+    """Every `inferlab ...` invocation documented in the README, as an argv list."""
+
+    commands: list[str] = []
+    for block in _readme_bash_blocks():
+        cmd: list[str] = []
+        for line in block.splitlines():
+            stripped = line.strip()
+            if stripped.endswith("\\"):
+                cmd.append(stripped[:-1].strip())
+                continue
+            cmd.append(stripped)
+            joined = " ".join(part for part in cmd if part)
+            if joined.startswith("inferlab "):
+                commands.append(joined)
+            cmd = []
+    return commands
+
+
+def test_readme_documents_real_commands():
+    """Every `inferlab ...` command in the README must actually parse.
+
+    A documented command that cannot run is worse than no documentation: it is the first thing
+    a technically-minded reader tries.
+    """
+    import shlex
+
+    from inferlab import report as report_module
+
+    subcommand_to_module = {
+        "bench": harness,
+        "quality": quality,
+        "report": report_module,
+    }
+    commands = _inferlab_commands()
+    assert len(commands) >= 3, f"expected the README to document inferlab usage, got {commands}"
+
+    for cmd in commands:
+        argv = shlex.split(cmd)[1:]  # drop the leading "inferlab"
+        subcommand, rest = argv[0], argv[1:]
+        assert subcommand in subcommand_to_module, f"unknown subcommand in README: {cmd}"
+        parser = subcommand_to_module[subcommand].build_parser()
+        try:
+            parser.parse_args(rest)  # argparse exits(2) on a parse error, 0 on --help
+        except SystemExit as exc:
+            pytest.fail(
+                f"README documents a command that does not parse: {cmd}\n"
+                f"argparse exited with {exc.code}"
+            )
+
+
+def test_readme_references_existing_files():
+    """Every relative link/path in the README must resolve on disk."""
+    import re
+
+    from inferlab import report as _report  # noqa: F401  (keeps the import list honest)
+
+    text = Path("README.md").read_text(encoding="utf-8")
+    refs = re.findall(r"\]\(([^)#:<>]+)\)", text)
+    refs += re.findall(r"`(configs/[^`]+|data/[^`]+|docs/[^`]+|backends/[^`]+)`", text)
+    assert refs, "found no file references to check"
+    missing = [r for r in refs if not Path(r).exists()]
+    assert not missing, f"README references files that do not exist: {missing}"

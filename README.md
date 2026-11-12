@@ -110,11 +110,12 @@ inferlab bench \
 
 ```bash
 inferlab quality \
+    --backend vllm-nvfp4 \
     --url http://localhost:8000 \
-    --model <nvfp4-repo> \
-    --tasks reasoning mcq \
+    --tasks data/quality/tasks.json \
     --perplexity-corpus data/perplexity/sample.txt \
-    --baseline-json results/vllm-bf16-baseline.json
+    --baseline-json results/vllm-bf16-baseline.json \
+    --json results/quality-vllm-nvfp4.json
 ```
 
 **4. Generate the tables in `docs/RESULTS.md`:**
@@ -123,7 +124,7 @@ inferlab quality \
 inferlab report results/*.json --out docs/RESULTS.md
 ```
 
-Everything is driven by CLI flags or [`bench/configs/default.yaml`](bench/configs/default.yaml) --
+Everything is driven by CLI flags or [`configs/default.yaml`](configs/default.yaml) --
 no notebook state, no manual transcription, no results that cannot be reproduced from the repo.
 
 ## Concurrency is not optional
@@ -149,8 +150,8 @@ See [docs/RESULTS.md](docs/RESULTS.md) for measured data as it lands.
 ## Methodology
 
 Read [docs/METHODOLOGY.md](docs/METHODOLOGY.md) before quoting any number from this repo. It
-documents warmup policy, how tokens are counted, why TTFT excludes queueing, and the known sources
-of error. Benchmarks without a methodology are marketing.
+documents warmup policy, how tokens are counted, what TTFT does and does not include under load,
+and the known sources of error. Benchmarks without a methodology are marketing.
 
 ## Contributing
 
