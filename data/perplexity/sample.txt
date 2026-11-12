@@ -1,0 +1,63 @@
+This is the reference corpus for perplexity measurement. It is deliberately fixed: perplexity is
+only meaningful as a delta against a reference config, and a delta is only stable if the corpus
+never moves. Replace it with a corpus of your own domain if you like, but then re-measure the
+baseline, because the absolute number will change while the relative ordering of quantizations
+usually will not.
+
+Autoregressive language models generate text one token at a time. Each step predicts a
+distribution over the vocabulary, conditioned on everything produced so far, and sampling or
+greedy selection turns that distribution into the next token. The cost of a step is dominated by
+two quantities: the amount of compute required to evaluate the model over the current sequence,
+and the amount of memory that must be read to do it.
+
+The first phase of serving a request, commonly called prefill, evaluates the entire prompt in a
+single parallel pass and produces the key and value tensors that later steps will attend over.
+Because the work is parallel, prefill is compute-bound and its latency scales roughly with the
+number of prompt tokens. The second phase, decode, generates one token per step and must read the
+model weights and the accumulated key-value cache every time. Because the arithmetic per step is
+small relative to the memory traffic, decode is memory-bandwidth-bound, and its cost per token is
+nearly independent of how many tokens have already been generated.
+
+This asymmetry explains most of what practitioners observe. Doubling the prompt length does not
+double the latency of a short response, because prefill is parallel; doubling the response length
+does roughly double it, because decode is sequential. It also explains why quantizing the weights
+helps decode disproportionately: a smaller model is fewer bytes to read per token, and decode is
+bound by exactly those bytes.
+
+A batch exists to amortize the weight read. If a single request does not saturate the memory
+bandwidth, several requests can be evaluated together so the weights are read once for all of
+them. Continuous batching pushes this further by admitting a new request into the batch the moment
+a slot frees, rather than waiting for the whole batch to finish. The result is that the serving
+throughput of a model can exceed the single-request throughput of the same model on the same
+hardware, which is why a benchmark taken at concurrency one describes a demonstration rather than
+a service.
+
+The key-value cache is the other constraint. Its size is proportional to the number of cached
+tokens, the number of layers, and the number of attention heads, and it grows with every
+conversation turn. A model that fits comfortably in memory with a short context can run out of
+room with a long one, not because the weights changed, but because the cache did. Quantizing the
+cache to a lower precision reduces the bytes stored per token, which raises the number of
+sequences that can be resident at once, at the cost of a small numerical error that accumulates
+across the tokens that attend over it.
+
+Chunked prefill addresses a scheduling problem rather than a memory one. If a long prompt and a
+short prompt arrive together, evaluating the long prompt as one indivisible block delays the
+short request by an amount that has nothing to do with the short request. Splitting the long
+prompt into chunks and interleaving them with decode work bounds that delay, at the cost of some
+overhead and a modest reduction in peak throughput on prefill-heavy traffic.
+
+Quantization is the clearest example of a trade that must be measured rather than assumed.
+Reducing the precision of the weights reduces the memory they occupy and the bandwidth they
+consume, and both effects improve decode throughput. The same reduction introduces rounding error
+into the matrix multiplications that make up the model, and that error does not distribute evenly
+across capabilities. A quantized model may match its full-precision reference on summarization
+and fail on multi-step arithmetic, or handle a conversation and lose track of a fact planted in
+the middle of a long document. The only reliable way to know which happened is to measure quality
+on a fixed task set alongside the throughput, and to report both.
+
+This is why a benchmark that reports only tokens per second is incomplete, and why the full
+picture requires a method: identical prompts across configurations, a warmup that is discarded,
+percentiles rather than means so that a single outlier does not set the headline, the peak memory
+actually observed rather than the theoretical footprint, and a quality measurement that is
+deterministic enough to attribute a regression to a change in precision rather than to a change in
+luck.
