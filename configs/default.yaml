@@ -1,0 +1,97 @@
+# inferlab run recipes.
+#
+# Each entry is a config that has actually been launched and measured on 1x RTX 5090.
+# A recipe here is a promise: `inferlab bench --config <name>` reproduces the row in
+# docs/RESULTS.md that carries the same label, provided the backend is already running with the
+# launch command in backends/README.md.
+#
+# Usage:
+#   inferlab bench --config vllm-nvfp4 --url http://localhost:8000 \
+#       --json results/vllm-nvfp4.json --vram
+
+defaults:
+  runs: 5            # measured samples per (workload, concurrency)
+  warmup: 2          # discarded requests per workload; not counted anywhere
+  concurrency: [1, 8, 32]
+  workloads: mixed
+  temperature: 0.0   # greedy: results must not depend on sampling luck
+  sample_vram: true
+  gpu_index: 0
+  timeout_s: 600
+
+configs:
+
+  # --------------------------------------------------------------------------
+  # vLLM
+  # --------------------------------------------------------------------------
+
+  vllm-nvfp4:
+    engine: vllm
+    backend: vllm-nvfp4
+    description: NVFP4 weights, FP8 KV-cache, chunked prefill, 24k context
+    notes: |
+      The configuration the resume headline number comes from. FP8 KV-cache is what makes 24k
+      context fit in 32 GB next to NVFP4 weights; chunked prefill is what keeps a long-context
+      request from stalling short ones.
+
+  vllm-fp8:
+    engine: vllm
+    backend: vllm-fp8
+    description: FP8 weights, FP8 KV-cache, chunked prefill, 24k context
+    notes: |
+      The reference point above NVFP4. Comparing NVFP4 against this row is the only way to know
+      whether the extra quantization step bought anything real.
+
+  vllm-bf16-baseline:
+    engine: vllm
+    backend: vllm-bf16-baseline
+    description: BF16 reference -- quality baseline, not a throughput contender
+    notes: |
+      This row exists for quality.py, not for the speed table. Its perplexity is the denominator
+      of every "PPL delta" in docs/RESULTS.md. Expect it to be slow and to OOM at 24k if weights
+      alone do not fit.
+
+  # --------------------------------------------------------------------------
+  # SGLang
+  # --------------------------------------------------------------------------
+
+  sglang-nvfp4:
+    engine: sglang
+    backend: sglang-nvfp4
+    description: NVFP4 weights, radix cache, chunked prefill
+    notes: |
+      RadixAttention is SGLang's structural advantage: shared-prompt workloads (agents, batch
+      summarization) reuse KV instead of recomputing it. The speed table alone will not show
+      that; the long-context and repeated-prompt rows should.
+
+  # --------------------------------------------------------------------------
+  # TensorRT-LLM
+  # --------------------------------------------------------------------------
+
+  trtllm-fp8:
+    engine: tensorrt-llm
+    backend: trtllm-fp8
+    description: FP8 build with in-flight batching, 24k context
+    notes: |
+      Highest per-token efficiency in principle, highest engineering cost in practice: the engine
+      build is per-model and per-GPU. Record the TRT-LLM and TensorRT versions in the JSON or the
+      row is not reproducible.
+
+  # --------------------------------------------------------------------------
+  # llama.cpp
+  # --------------------------------------------------------------------------
+
+  llamacpp-q4km:
+    engine: llama.cpp
+    backend: llamacpp-q4km
+    description: GGUF Q4_K_M, single stream
+    notes: |
+      Included because it is the floor everyone actually compares against, and because it runs on
+      hardware where nothing else will. Expect much lower VRAM and much lower throughput.
+
+  llamacpp-q8:
+    engine: llama.cpp
+    backend: llamacpp-q8
+    description: GGUF Q8_0 -- the quality reference for GGUF
+    notes: |
+      Q4_K_M's perplexity delta should be measured against this, not against vLLM BF16.
