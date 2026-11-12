@@ -1,0 +1,47 @@
+# inferlab local stack.
+#
+# Brings up an OpenAI-compatible vLLM server with the NVFP4 / FP8-KV-cache recipe, so that the
+# environment is part of the artifact instead of part of the folklore.
+#
+# Requires the NVIDIA Container Toolkit: https://docs.nvidia.com/datacenter/cloud-native/container-toolkit
+#
+#   docker compose up vllm
+#   inferlab bench --config vllm-nvfp4 --url http://localhost:8000 --vram --json results/vllm-nvfp4.json
+
+services:
+  vllm:
+    image: vllm/vllm-openai:latest
+    command:
+      - --model
+      - ${MODEL_ID:?set MODEL_ID to a repo with NVFP4 weights}
+      - --kv-cache-dtype
+      - fp8
+      - --enable-chunked-prefill
+      - --max-model-len
+      "24576"
+      - --gpu-memory-utilization
+      "0.92"
+      - --port
+      "8000"
+    environment:
+      - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN:-}
+      - VLLM_LOGGING_LEVEL=INFO
+    ports:
+      - "8000:8000"
+    volumes:
+      - ${HF_HOME:-~/.cache/huggingface}:/root/.cache/huggingface
+    ipc: host
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/v1/models', timeout=5).status==200 else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 20
+      start_period: 300s
