@@ -194,9 +194,8 @@ and the known sources of error. Benchmarks without a methodology are marketing.
 
 ## Contributing
 
-Runs on hardware other than an RTX 5090 are the most useful contribution available -- open a PR that
-drops a JSON file into `results/` and adds a row to `RESULTS.md`. A name for the GPU in the config
-is enough.
+See [CONTRIBUTING.md](CONTRIBUTING.md). The short version: runs on hardware other than an
+RTX 5090 are the most useful contribution available.
 
 ## License
 
